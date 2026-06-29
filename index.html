@@ -1,1 +1,417 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kommax Калькулятор</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0f0f0f; color: #fff; font-family: 'Inter', sans-serif; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+const { useState, useEffect } = React;
 
+const EXCHANGE_RATE = 12100;
+
+const SEGMENTS = {
+  lux:      { name: "Люкс",     handlePrice: 10 },
+  standart: { name: "Стандарт", handlePrice: 5  },
+  econom:   { name: "Эконом",   handlePrice: 5  },
+};
+
+const FURNITURE_TYPES = {
+  shkaf:  { name: "🚪 Шкаф",  hasStol: false },
+  kuhnya: { name: "🍳 Кухня", hasStol: true  },
+};
+
+const LDSP = {
+  premium: { name: "Egger (Австрия)",     sheetPrice: 80, sheetW: 2.8,  sheetH: 2.07 },
+  middle:  { name: "Ultradecor (Россия)", sheetPrice: 65, sheetW: 2.8,  sheetH: 2.07 },
+  simple:  { name: "Местный",             sheetPrice: 45, sheetW: 2.75, sheetH: 2.07 },
+};
+
+const FACADE_TYPES = {
+  ldsp:        { name: "ЛДСП / ЛМДФ",          unit: "sqm_ldsp" },
+  paint_min:   { name: "Покраска — Эконом",     pricePerSqm: 40,  unit: "sqm" },
+  paint_max:   { name: "Покраска — Премиум",    pricePerSqm: 55,  unit: "sqm" },
+  acrylic_min: { name: "Акрил — Эконом",        pricePerSheet: 45, sheetW: 2.44, sheetH: 1.22, unit: "sheet" },
+  acrylic_max: { name: "Акрил — Премиум",       pricePerSheet: 65, sheetW: 2.44, sheetH: 1.22, unit: "sheet" },
+};
+
+const FURNITURA = {
+  blum:  { name: "Blum",  hingePrice: 3.5, railPrice: 17 },
+  samet: { name: "Samet", hingePrice: 1.6, railPrice: 11 },
+  china: { name: "Китай", hingePrice: 0.6, railPrice: 8  },
+};
+
+const STOLESHNITSA = {
+  none:    { name: "Нет",              price: 0,   unit: "none"  },
+  quartz:  { name: "Кварцовый",        price: 180, unit: "pm"    },
+  acrylic: { name: "Акриловый",        price: 120, unit: "pm"    },
+  egger:   { name: "Egger (4200×600)", price: 100, unit: "sheet", sheetLen: 4.2  },
+  kedr:    { name: "Кедр (3050×600)",  price: 35,  unit: "sheet", sheetLen: 3.05 },
+};
+
+const KROMKA = {
+  egger: { name: "Egger",  price: 0.8 },
+  other: { name: "Другая", price: 0.4 },
+};
+
+const HDF_PRICE_PER_SQM = 140000 / (2.8 * 2.07) / EXCHANGE_RATE;
+const KROMKA_PER_SQM = 5;
+
+function usd(v) { return "$" + v.toFixed(2); }
+function sumQ(v) { return Math.round(v * EXCHANGE_RATE).toLocaleString() + " сум"; }
+
+function Row({ label, val, note, highlight }) {
+  return (
+    <div style={{ display:"flex", justifyContent:"space-between", fontSize:13, padding:"7px 0", borderBottom:"1px solid #222" }}>
+      <span style={{ color: highlight ? "#d97706" : "#a1a1aa" }}>
+        {label}{note && <span style={{ color:"#52525b", fontSize:11 }}> ({note})</span>}
+      </span>
+      <span style={{ color: highlight ? "#d97706" : "#e4e4e7", fontWeight: highlight ? 700 : 500 }}>{usd(val)}</span>
+    </div>
+  );
+}
+
+function Radio({ name, value, checked, onChange, children }) {
+  return (
+    <label style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:8,
+      marginBottom:6, cursor:"pointer", background: checked ? "#2a1f00" : "#111",
+      border:"1px solid " + (checked ? "#d97706" : "#2a2a2a") }}>
+      <input type="radio" name={name} value={value} checked={checked} onChange={onChange} style={{ accentColor:"#d97706" }} />
+      {children}
+    </label>
+  );
+}
+
+function Section({ title, children }) {
+  return (
+    <div style={{ background:"#1a1a1a", borderRadius:14, padding:18, marginBottom:14, border:"1px solid #2a2a2a" }}>
+      <div style={{ fontSize:11, fontWeight:700, color:"#d97706", marginBottom:14, textTransform:"uppercase", letterSpacing:2 }}>{title}</div>
+      {children}
+    </div>
+  );
+}
+
+function InfoBox({ children }) {
+  return <div style={{ fontSize:12, color:"#71717a", padding:"8px 12px", background:"#111", borderRadius:8, marginTop:8 }}>{children}</div>;
+}
+
+function App() {
+  const [segment, setSegment]   = useState("lux");
+  const [furType, setFurType]   = useState("shkaf");
+  const [W, setW] = useState("");
+  const [H, setH] = useState("");
+  const [D, setD] = useState("");
+  const [ldsp, setLdsp]         = useState("premium");
+  const [facade, setFacade]     = useState("ldsp");
+  const [fur, setFur]           = useState("blum");
+  const [railsCount, setRailsCount] = useState(2);
+  const [stol, setStol]         = useState("none");
+  const [stolLen, setStolLen]   = useState(1);
+  const [kromka, setKromka]     = useState("egger");
+  const [hdfType, setHdfType]   = useState("hdf");
+  const [ledMeters, setLedMeters] = useState(0);
+  const [result, setResult]     = useState(null);
+
+  useEffect(() => {
+    if (window.Telegram && window.Telegram.WebApp) {
+      window.Telegram.WebApp.ready();
+      window.Telegram.WebApp.expand();
+    }
+  }, []);
+
+  useEffect(() => { calculate(); }, [segment, furType, W, H, D, ldsp, facade, fur, railsCount, stol, stolLen, kromka, hdfType, ledMeters]);
+
+  function calculate() {
+    const w = parseFloat(W) / 1000;
+    const h = parseFloat(H) / 1000;
+    const d = parseFloat(D) / 1000;
+    if (!w || !h || !d) { setResult(null); return; }
+
+    const shelvesCount = Math.round(h / 0.4) - 1;
+    const sides      = h * d * 2;
+    const topBot     = w * d * 2;
+    const shelves    = w * d * shelvesCount;
+    const corpusArea = sides + topBot + shelves;
+
+    const facadeCols  = Math.ceil(w / 0.6);
+    const facadeRows  = h > 2.3 ? 2 : 1;
+    const facadeCount = facadeCols * facadeRows;
+    const facadeArea  = w * h;
+
+    const ldspData  = LDSP[ldsp];
+    const sheetArea = ldspData.sheetW * ldspData.sheetH;
+    const sqmPrice  = ldspData.sheetPrice / sheetArea;
+    const corpusCost = corpusArea * sqmPrice;
+
+    let facadeCost = 0;
+    const fd = FACADE_TYPES[facade];
+    if (fd.unit === "sqm_ldsp")   facadeCost = facadeArea * sqmPrice;
+    else if (fd.unit === "sqm")   facadeCost = facadeArea * fd.pricePerSqm;
+    else if (fd.unit === "sheet") facadeCost = Math.ceil(facadeArea / (fd.sheetW * fd.sheetH)) * fd.pricePerSheet;
+
+    const totalLdspArea = corpusArea + (facade === "ldsp" ? facadeArea : 0);
+    const sheetsNeeded  = Math.ceil(totalLdspArea / sheetArea);
+    const rezkaCost     = sheetsNeeded * 4;
+    const sverlovkaCost = totalLdspArea * 2;
+
+    let dostavkaCost = sheetsNeeded <= 10 ? 45 : 70;
+
+    const kromkaMeters = totalLdspArea * KROMKA_PER_SQM;
+    const kromkaCost   = kromkaMeters * KROMKA[kromka].price;
+
+    const hdfArea = h * w;
+    const hdfCost = hdfArea * HDF_PRICE_PER_SQM;
+
+    const furData     = FURNITURA[fur];
+    const hingesCount = facadeCount * 2;
+    const rails       = parseFloat(railsCount) || 0;
+    const hingeCost   = hingesCount * furData.hingePrice;
+    const railCost    = rails * furData.railPrice;
+    const furCost     = hingeCost + railCost;
+
+    const handlePrice = SEGMENTS[segment].handlePrice;
+    const handleCost  = facadeCount * handlePrice;
+
+    const nojkiCount = Math.ceil(w) * 6;
+    const nojki      = (nojkiCount * 4000) / EXCHANGE_RATE;
+    const shurupy    = 2500 / EXCHANGE_RATE;
+    const eksc       = 50000 / EXCHANGE_RATE;
+
+    const ledCost = (parseFloat(ledMeters) || 0) * 8;
+
+    let stolCost = 0;
+    const stolData = STOLESHNITSA[stol];
+    if (stolData.unit === "pm")    stolCost = parseFloat(stolLen) * stolData.price;
+    else if (stolData.unit === "sheet") stolCost = Math.ceil(parseFloat(stolLen) / stolData.sheetLen) * stolData.price;
+
+    const subtotal = corpusCost + facadeCost + rezkaCost + sverlovkaCost +
+      dostavkaCost + kromkaCost + hdfCost + furCost + handleCost +
+      nojki + shurupy + eksc + ledCost + stolCost;
+
+    const melochi = subtotal * 0.10;
+    const totalExpense = subtotal + melochi;
+    const clientPrice  = totalExpense * 2;
+
+    setResult({ w, h, d, corpusArea: corpusArea.toFixed(2), facadeArea: facadeArea.toFixed(2),
+      facadeCount, shelvesCount, hingesCount, sheetsNeeded, nojkiCount, rails,
+      kromkaMeters: kromkaMeters.toFixed(1), corpusCost, facadeCost, rezkaCost,
+      sverlovkaCost, dostavkaCost, kromkaCost, hdfCost, furCost, handleCost,
+      handlePrice, nojki, shurupy, eksc, ledCost, stolCost,
+      melochi, subtotal, totalExpense, clientPrice, sqmPrice });
+  }
+
+  const inp = { background:"#111", border:"1px solid #333", borderRadius:8,
+    padding:"10px", color:"#fff", fontSize:18, textAlign:"center", width:"100%",
+    WebkitAppearance:"none" };
+
+  return (
+    <div style={{ padding:"16px", paddingBottom:40 }}>
+      <div style={{ textAlign:"center", marginBottom:24 }}>
+        <div style={{ fontSize:10, letterSpacing:4, color:"#d97706", textTransform:"uppercase", marginBottom:4 }}>Kommax Group</div>
+        <div style={{ fontSize:22, fontWeight:700 }}>Калькулятор мебели</div>
+      </div>
+
+      {/* Сегмент */}
+      <Section title="⭐ Сегмент">
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
+          {Object.entries(SEGMENTS).map(([key, val]) => (
+            <button key={key} onClick={() => setSegment(key)} style={{
+              padding:"12px 4px", borderRadius:10, cursor:"pointer", fontSize:13, fontWeight:700,
+              background: segment===key ? "#d97706" : "#111",
+              color: segment===key ? "#0f0f0f" : "#a1a1aa",
+              border:"1px solid " + (segment===key ? "#d97706" : "#2a2a2a"),
+            }}>{val.name}</button>
+          ))}
+        </div>
+        {result && <InfoBox>Ручки: <b style={{color:"#e4e4e7"}}>${result.handlePrice} × {result.facadeCount} фасадов = {usd(result.handleCost)}</b></InfoBox>}
+      </Section>
+
+      {/* Тип */}
+      <Section title="🪑 Тип мебели">
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+          {Object.entries(FURNITURE_TYPES).map(([key, val]) => (
+            <button key={key} onClick={() => setFurType(key)} style={{
+              padding:"14px 8px", borderRadius:10, cursor:"pointer", fontSize:14, fontWeight:700,
+              background: furType===key ? "#d97706" : "#111",
+              color: furType===key ? "#0f0f0f" : "#a1a1aa",
+              border:"1px solid " + (furType===key ? "#d97706" : "#2a2a2a"),
+            }}>{val.name}</button>
+          ))}
+        </div>
+      </Section>
+
+      {/* Размеры в мм */}
+      <Section title="📐 Размеры (мм)">
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10 }}>
+          {[["Высота", H, setH], ["Ширина", W, setW], ["Глубина", D, setD]].map(([lbl, val, set]) => (
+            <div key={lbl}>
+              <div style={{ color:"#71717a", fontSize:11, marginBottom:6, textTransform:"uppercase", letterSpacing:1, textAlign:"center" }}>{lbl}</div>
+              <input type="number" value={val} onChange={e => set(e.target.value)}
+                placeholder="0" style={inp} />
+            </div>
+          ))}
+        </div>
+        {result && (
+          <div style={{ marginTop:12, background:"#111", borderRadius:10, padding:12 }}>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:5, fontSize:12 }}>
+              {[["Корпус", result.corpusArea+" м²"], ["Фасад", result.facadeArea+" м²"],
+                ["Полки", result.shelvesCount+" шт"], ["Фасадов", result.facadeCount+" шт"],
+                ["Листов ЛДСП", result.sheetsNeeded+" шт"], ["Кромка", result.kromkaMeters+" п.м"],
+              ].map(([l,v]) => <span key={l} style={{color:"#71717a"}}>{l}: <b style={{color:"#e4e4e7"}}>{v}</b></span>)}
+            </div>
+          </div>
+        )}
+      </Section>
+
+      {/* ЛДСП */}
+      <Section title="🪵 Материал ЛДСП">
+        {Object.entries(LDSP).map(([key, val]) => (
+          <Radio key={key} name="ldsp" value={key} checked={ldsp===key} onChange={()=>setLdsp(key)}>
+            <span style={{fontSize:13}}>{val.name}</span>
+            <span style={{marginLeft:"auto", color:"#d97706", fontSize:12, fontWeight:600}}>
+              ${val.sheetPrice}/л · ${(val.sheetPrice/(val.sheetW*val.sheetH)).toFixed(1)}/м²
+            </span>
+          </Radio>
+        ))}
+      </Section>
+
+      {/* Фасад */}
+      <Section title="🎨 Фасад">
+        {Object.entries(FACADE_TYPES).map(([key, val]) => (
+          <Radio key={key} name="facade" value={key} checked={facade===key} onChange={()=>setFacade(key)}>
+            <span style={{fontSize:13}}>{val.name}</span>
+            <span style={{marginLeft:"auto", color:"#71717a", fontSize:12}}>
+              {val.unit==="sqm" ? "$"+val.pricePerSqm+"/м²" : val.unit==="sheet" ? "$"+val.pricePerSheet+"/лист" : ""}
+            </span>
+          </Radio>
+        ))}
+      </Section>
+
+      {/* Фурнитура */}
+      <Section title="⚙️ Фурнитура">
+        {Object.entries(FURNITURA).map(([key, val]) => (
+          <Radio key={key} name="fur" value={key} checked={fur===key} onChange={()=>setFur(key)}>
+            <div>
+              <div style={{fontSize:13, fontWeight:600}}>{val.name}</div>
+              <div style={{fontSize:11, color:"#71717a"}}>Петля ${val.hingePrice} · Напр. ${val.railPrice}/пара</div>
+            </div>
+          </Radio>
+        ))}
+        {result && <InfoBox>Петли: <b style={{color:"#e4e4e7"}}>{result.hingesCount} шт</b></InfoBox>}
+        <div style={{marginTop:12}}>
+          <div style={{color:"#71717a", fontSize:11, marginBottom:4, textTransform:"uppercase", letterSpacing:1}}>Направляющие (пар)</div>
+          <input type="number" value={railsCount} onChange={e=>setRailsCount(e.target.value)} style={inp} />
+        </div>
+      </Section>
+
+      {/* Кромка */}
+      <Section title="📏 Кромка">
+        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10}}>
+          {Object.entries(KROMKA).map(([key, val]) => (
+            <Radio key={key} name="kromka" value={key} checked={kromka===key} onChange={()=>setKromka(key)}>
+              <div>
+                <div style={{fontSize:13}}>{val.name}</div>
+                <div style={{fontSize:11, color:"#d97706"}}>${val.price}/п.м</div>
+              </div>
+            </Radio>
+          ))}
+        </div>
+        {result && <InfoBox>Автоматически: <b style={{color:"#e4e4e7"}}>{result.kromkaMeters} п.м</b></InfoBox>}
+      </Section>
+
+      {/* Задняя стенка */}
+      <Section title="🔲 Задняя стенка">
+        {[{key:"hdf", label:"ХДФ"}, {key:"lmdf", label:"ЛМДФ / ЛДСП"}].map(({key, label}) => (
+          <Radio key={key} name="hdfType" value={key} checked={hdfType===key} onChange={()=>setHdfType(key)}>
+            <span style={{fontSize:13}}>{label}</span>
+          </Radio>
+        ))}
+        {result && <InfoBox>Площадь: <b style={{color:"#e4e4e7"}}>{(result.h*result.w).toFixed(2)} м²</b></InfoBox>}
+      </Section>
+
+      {/* LED */}
+      <Section title="💡 LED подсветка ($8/п.м)">
+        <div style={{color:"#71717a", fontSize:11, marginBottom:6, textTransform:"uppercase", letterSpacing:1}}>Длина (п.м) — 0 если нет</div>
+        <input type="number" value={ledMeters} onChange={e=>setLedMeters(e.target.value)} placeholder="0" style={inp} />
+      </Section>
+
+      {/* Столешница только для кухни */}
+      {furType === "kuhnya" && (
+        <Section title="🔳 Столешница">
+          {Object.entries(STOLESHNITSA).map(([key, val]) => (
+            <Radio key={key} name="stol" value={key} checked={stol===key} onChange={()=>setStol(key)}>
+              <span style={{fontSize:13}}>{val.name}</span>
+              <span style={{marginLeft:"auto", color:"#71717a", fontSize:12}}>
+                {val.unit==="pm" ? "$"+val.price+"/п.м" : val.unit==="sheet" ? "$"+val.price+"/лист" : ""}
+              </span>
+            </Radio>
+          ))}
+          {stol !== "none" && (
+            <div style={{marginTop:10}}>
+              <div style={{color:"#71717a", fontSize:11, marginBottom:4, textTransform:"uppercase", letterSpacing:1}}>
+                {STOLESHNITSA[stol].unit==="pm" ? "Длина (п.м)" : "Длина (м)"}
+              </div>
+              <input type="number" value={stolLen} onChange={e=>setStolLen(e.target.value)} style={inp} />
+            </div>
+          )}
+        </Section>
+      )}
+
+      {/* Результат */}
+      {result && (
+        <div style={{ background:"#1a1000", borderRadius:16, padding:20, border:"2px solid #d97706" }}>
+          <div style={{ fontSize:11, fontWeight:700, color:"#d97706", marginBottom:14, textTransform:"uppercase", letterSpacing:2 }}>💰 Расчёт</div>
+          <Row label="Корпус ЛДСП" val={result.corpusCost} note={result.corpusArea+" м²"} />
+          <Row label="Фасад" val={result.facadeCost} note={result.facadeCount+" шт · "+result.facadeArea+" м²"} />
+          <Row label="Резка Eman" val={result.rezkaCost} note={result.sheetsNeeded+" листов × $4"} />
+          <Row label="Сверление Eman" val={result.sverlovkaCost} />
+          <Row label="Доставка" val={result.dostavkaCost} note={result.sheetsNeeded+" листов"} />
+          <Row label="Кромка" val={result.kromkaCost} note={result.kromkaMeters+" п.м"} />
+          <Row label="Задняя стенка" val={result.hdfCost} note={(result.h*result.w).toFixed(2)+" м²"} />
+          <Row label={"Петли ("+result.hingesCount+" шт)"} val={result.hingesCount * FURNITURA[fur].hingePrice} />
+          <Row label={"Направляющие ("+result.rails+" пар)"} val={result.rails * FURNITURA[fur].railPrice} />
+          <Row label={"Ручки ("+result.facadeCount+" × $"+result.handlePrice+")"} val={result.handleCost} />
+          <Row label={"Ножки ("+result.nojkiCount+" шт)"} val={result.nojki} />
+          <Row label="Саморезы" val={result.shurupy} />
+          <Row label="Эксцентрики + шканты" val={result.eksc} />
+          {result.ledCost > 0 && <Row label={"LED ("+ledMeters+" п.м)"} val={result.ledCost} />}
+          {result.stolCost > 0 && <Row label="Столешница" val={result.stolCost} />}
+          <Row label="Мелочи (10%)" val={result.melochi} highlight />
+
+          <div style={{ borderTop:"2px solid #333", paddingTop:14, marginTop:10, marginBottom:14 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", fontSize:15 }}>
+              <span style={{ color:"#a1a1aa", fontWeight:600 }}>Общий расход</span>
+              <span style={{ color:"#e4e4e7", fontWeight:700 }}>{usd(result.totalExpense)}</span>
+            </div>
+            <div style={{ textAlign:"right", fontSize:12, color:"#52525b", marginTop:2 }}>{sumQ(result.totalExpense)}</div>
+          </div>
+
+          <div style={{ background:"#d97706", borderRadius:12, padding:"16px", textAlign:"center" }}>
+            <div style={{ fontSize:11, color:"#1a1000", fontWeight:700, marginBottom:4, textTransform:"uppercase", letterSpacing:2 }}>Цена клиенту (×2)</div>
+            <div style={{ fontSize:34, fontWeight:800, color:"#0f0f0f" }}>{usd(result.clientPrice)}</div>
+            <div style={{ fontSize:14, color:"#1a1000", marginTop:4, fontWeight:600 }}>{sumQ(result.clientPrice)}</div>
+          </div>
+
+          <div style={{ marginTop:10, fontSize:11, color:"#52525b", textAlign:"center" }}>
+            Курс: 1$ = {EXCHANGE_RATE.toLocaleString()} сум · Работа мастеров не включена
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
